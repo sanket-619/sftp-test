@@ -1,0 +1,23 @@
+{
+  "name": "sftp-s3-server",
+  "version": "1.0.0",
+  "description": "SFTP server that connects to AWS S3 for file storage",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "node src/main.js",
+    "dev": "node --inspect src/main.js",
+    "test": "node tests/test-server.js",
+    "generate-keys": "./scripts/generate-keys.sh"
+  },
+  "keywords": ["sftp", "s3", "aws", "file-transfer", "server"],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.859.0",
+    "ssh2": "^1.16.0"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
