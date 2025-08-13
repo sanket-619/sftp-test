@@ -174,6 +174,7 @@ node test-user-folders.js --cleanup
 ### Testing Commands
 
 - `node tests/test-authentication.js` - Test authentication system
+- `node test-directory-blocking.js` - Test that directory creation/deletion is blocked
 
 ## 📖 Documentation
 
@@ -206,6 +207,40 @@ allowedPaths: {
 - Directory depth limits
 - Configurable security policies
 - Access control per user
+- **Directory creation/deletion blocked** - Users cannot create or delete directories
+
+## 🚫 Directory Restrictions
+
+The SFTP server has strict directory management policies to maintain data integrity:
+
+### **Directory Creation Blocked**
+- Users **cannot create new directories** using `mkdir` command
+- All `MKDIR` operations return "Permission Denied" error
+- System directories are created automatically during user authentication
+
+### **Directory Deletion Blocked**
+- Users **cannot delete directories** using `rmdir` command
+- All `RMDIR` operations return "Permission Denied" error
+- Prevents accidental deletion of important directory structures
+
+### **Protected Directories**
+- **Ledgers and Invoices directories are PROTECTED** from deletion
+- Users cannot delete, rename, or remove these critical directories
+- Protection covers both root-level and user-specific ledgers/invoices folders
+- Directory marker files (`.directory`) are also protected
+
+### **Automatic Directory Management**
+- User base directories are created automatically on login
+- Default subdirectories (invoices, ledgers) are created automatically
+- Directory structure is managed by the system, not by users
+
+### **Why This Restriction?**
+- Maintains consistent folder structure across all users
+- Prevents users from creating unnecessary or duplicate directories
+- Ensures data organization follows company policies
+- Reduces S3 storage costs from orphaned directories
+- **Protects critical business directories** (ledgers, invoices) from accidental deletion
+- **Prevents data loss** by blocking removal of important directory structures
 
 ## 🔄 Auto-Refresh Feature
 

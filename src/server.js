@@ -379,6 +379,38 @@ class SFTPS3Server extends EventEmitter {
     }
   }
 
+  /**
+   * Check if a file type is allowed for upload
+   * @param {string} filename - The filename to check
+   * @returns {boolean} - True if file type is allowed
+   */
+  _isFileTypeAllowed(filename) {
+    // Only allow PDF files for ledgers and invoices directories
+    const lowerFilename = filename.toLowerCase();
+    
+    // Check if this is a path to ledgers or invoices directory
+    if (lowerFilename.startsWith('/ledgers/') || lowerFilename.startsWith('/invoices/') ||
+        lowerFilename === '/ledgers' || lowerFilename === '/invoices') {
+      
+      // For ledgers and invoices, only allow PDF files
+      if (!lowerFilename.endsWith('.pdf')) {
+        this._log(util.format('File type not allowed in ledgers/invoices: %s (only PDF files allowed)', filename));
+        return false;
+      }
+      
+      // Also check for empty or invalid filenames
+      if (lowerFilename === '/ledgers' || lowerFilename === '/invoices' ||
+          lowerFilename === '/ledgers/' || lowerFilename === '/invoices/' ||
+          lowerFilename.endsWith('/ledgers/') || lowerFilename.endsWith('/invoices/')) {
+        this._log(util.format('Cannot upload to directory path: %s (must specify filename)', filename));
+        return false;
+      }
+    }
+    
+    // Allow all other file types in other directories
+    return true;
+  }
+
 
 
   _mapKey(userPath, filename) {
@@ -398,15 +430,30 @@ class SFTPS3Server extends EventEmitter {
       p = '/' + p;
     }
     
+    // Handle direct access to ledgers and invoices folders
+    // If user tries to access /ledgers, map it to /users/username/ledgers
+    if (p === '/ledgers' || p === '/invoices') {
+      // Extract username from userPath (userPath format: users/username)
+      const pathParts = userPath.split('/');
+      if (pathParts.length >= 2) {
+        const username = pathParts[1];
+        return `${userPath}${p}`;
+      }
+    }
+    
     return userPath + p;
   }
 
   _setupSFTPHandlers(sftp, openFiles, openDirs, handleCount, user) {
-          // Ensure user object is valid
-      if (!user || !user.username) {
-        this._log('Invalid user object in SFTP handlers');
-        return;
-      }
+    // NOTE: Directory creation (MKDIR) and deletion (RMDIR) are DISABLED for all users
+    // Users can only upload/download files to existing directories
+    // System directories are created automatically during user authentication
+    
+    // Ensure user object is valid
+    if (!user || !user.username) {
+      this._log('Invalid user object in SFTP handlers');
+      return;
+    }
       
       // Ensure user has a path property set to their user-specific directory
       if (!user.path) {
@@ -435,6 +482,15 @@ class SFTPS3Server extends EventEmitter {
         this._log(util.format('Allowed paths for user %s: %s', user.username, this.accessControl.getAllowedPaths(user.username).join(', ')));
         sftp.status(reqid, SFTP_STATUS_CODE.PERMISSION_DENIED);
         return;
+      }
+      
+      // Check file type restrictions for ledgers and invoices directories
+      if (flags & SFTP_OPEN_MODE.WRITE) {
+        if (!this._isFileTypeAllowed(filename)) {
+          this._log(util.format('File type not allowed for user %s: %s', user.username, filename));
+          sftp.status(reqid, SFTP_STATUS_CODE.PERMISSION_DENIED);
+          return;
+        }
       }
       
       const fullname = this._mapKey(user.path, filename);
@@ -618,6 +674,27 @@ class SFTPS3Server extends EventEmitter {
     sftp.on('REMOVE', (reqid, filePath) => {
       this._log(util.format('SFTP REMOVE %s', filePath));
       
+      // PROTECT IMPORTANT DIRECTORIES - Block deletion of directory structure only
+      // Allow users to delete their own files within ledgers and invoices
+      if (filePath === '/ledgers' || filePath === '/invoices' || 
+          filePath === '/user/ledgers' || filePath === '/user/invoices' ||
+          filePath.endsWith('/ledgers/.directory') || filePath.endsWith('/invoices/.directory') ||
+          filePath.endsWith('/user/ledgers/.directory') || filePath.endsWith('/user/invoices/.directory')) {
+        
+        this._log(util.format('User %s attempted to delete protected directory structure %s - BLOCKED', user.username, filePath));
+        
+        // Reject deletion of protected directory structure
+        sftp.status(reqid, SFTP_STATUS_CODE.PERMISSION_DENIED);
+        
+        // Emit event for monitoring
+        this.emit('protected-directory-deletion-blocked', { 
+          username: user.username, 
+          path: filePath, 
+          timestamp: Date.now() 
+        });
+        return;
+      }
+      
       // Check access control
       if (!this._isPathAllowed(user.username, filePath)) {
         this._log(util.format('Access denied for user %s to remove: %s', user.username, filePath));
@@ -630,27 +707,68 @@ class SFTPS3Server extends EventEmitter {
       this._deleteFileFromS3(sftp, reqid, fullname, user);
     });
 
-    // MKDIR - Handle directory creation
+    // MKDIR - Handle directory creation (DISABLED)
     sftp.on('MKDIR', (reqid, dirPath, attrs) => {
-      this._log(util.format('SFTP MKDIR %s', dirPath));
-      const procPath = path.join(dirPath, '.directory');
-      const fullname = this._mapKey(user.path, procPath);
-
-      this._createDirectoryInS3(sftp, reqid, fullname, user);
+      this._log(util.format('SFTP MKDIR %s - DIRECTORY CREATION DISABLED', dirPath));
+      
+      // Reject directory creation with permission denied
+      sftp.status(reqid, SFTP_STATUS_CODE.PERMISSION_DENIED);
+      
+      // Log the attempt
+      this._log(util.format('User %s attempted to create directory %s - REJECTED', user.username, dirPath));
+      
+      // Emit event for monitoring
+      this.emit('directory-creation-blocked', { 
+        username: user.username, 
+        path: dirPath, 
+        timestamp: Date.now() 
+      });
     });
 
-    // RMDIR - Handle directory deletion
+    // RMDIR - Handle directory deletion (DISABLED)
     sftp.on('RMDIR', (reqid, dirPath) => {
-      this._log(util.format('SFTP RMDIR %s', dirPath));
-      const procPath = path.join(dirPath, '.directory');
-      const fullname = this._mapKey(user.path, procPath);
-
-      this._deleteDirectoryFromS3(sftp, reqid, fullname, user);
+      this._log(util.format('SFTP RMDIR %s - DIRECTORY DELETION DISABLED', dirPath));
+      
+      // Reject directory deletion with permission denied
+      sftp.status(reqid, SFTP_STATUS_CODE.PERMISSION_DENIED);
+      
+      // Log the attempt
+      this._log(util.format('User %s attempted to delete directory %s - REJECTED', user.username, dirPath));
+      
+      // Emit event for monitoring
+      this.emit('directory-deletion-blocked', { 
+        username: user.username, 
+        path: dirPath, 
+        timestamp: Date.now() 
+      });
     });
 
     // RENAME - Handle file/directory renaming
     sftp.on('RENAME', (reqid, oldPath, newPath) => {
       this._log(util.format('SFTP RENAME %s->%s', oldPath, newPath));
+      
+      // PROTECT IMPORTANT DIRECTORIES - Block renaming of directory structure only
+      // Allow users to rename files within ledgers and invoices
+      if (oldPath === '/ledgers' || oldPath === '/invoices' || 
+          oldPath === '/user/ledgers' || oldPath === '/user/invoices' ||
+          oldPath.endsWith('/ledgers/.directory') || oldPath.endsWith('/invoices/.directory') ||
+          oldPath.endsWith('/user/ledgers/.directory') || oldPath.endsWith('/user/invoices/.directory')) {
+        
+        this._log(util.format('User %s attempted to rename protected directory structure %s - BLOCKED', user.username, oldPath));
+        
+        // Reject renaming of protected directory structure
+        sftp.status(reqid, SFTP_STATUS_CODE.PERMISSION_DENIED);
+        
+        // Emit event for monitoring
+        this.emit('protected-directory-rename-blocked', { 
+          username: user.username, 
+          oldPath: oldPath, 
+          newPath: newPath,
+          timestamp: Date.now() 
+        });
+        return;
+      }
+      
       const fullnameOld = this._mapKey(user.path, oldPath);
       const fullnameNew = this._mapKey(user.path, newPath);
 
@@ -795,6 +913,32 @@ class SFTPS3Server extends EventEmitter {
       stream.on('end', async () => {
         try {
           const buffer = Buffer.concat(chunks);
+          
+          // Check for empty files (0 bytes)
+          if (buffer.length === 0) {
+            this._log(util.format('Empty file upload rejected: %s (0 bytes)', fullname));
+            const state = openFiles.get(handleId);
+            if (state) {
+              state.uploadError = new Error('Empty files are not allowed');
+            }
+            this.emit('upload-error', { path: fullname, error: new Error('Empty files are not allowed'), username: user.username });
+            return;
+          }
+          
+          // Additional validation for ledgers and invoices directories
+          const lowerFullname = fullname.toLowerCase();
+          if (lowerFullname.includes('/ledgers/') || lowerFullname.includes('/invoices/')) {
+            if (!lowerFullname.endsWith('.pdf')) {
+              this._log(util.format('Non-PDF file upload rejected in ledgers/invoices: %s', fullname));
+              const state = openFiles.get(handleId);
+              if (state) {
+                state.uploadError = new Error('Only PDF files are allowed in ledgers and invoices directories');
+              }
+              this.emit('upload-error', { path: fullname, error: new Error('Only PDF files are allowed in ledgers and invoices directories'), username: user.username });
+              return;
+            }
+          }
+          
           const command = new PutObjectCommand({
             Bucket: this.bucketName,
             Key: fullname,
@@ -916,17 +1060,8 @@ class SFTPS3Server extends EventEmitter {
       // Get base path from config
       const basePath = config.sftp.userBasePath;
       
-      // Create user-specific directory marker
-      const userDirKey = `${basePath}/${username}/.directory`;
-      const command = new PutObjectCommand({
-        Bucket: this.bucketName,
-        Key: userDirKey,
-        Body: `Directory marker for user ${username}`,
-        ContentType: 'application/x-directory'
-      });
-
-      await this.s3Client.send(command);
-      this._log(util.format('Created user directory marker for %s: %s', username, userDirKey));
+      // Note: No directory markers are created - directories are virtual
+      this._log(util.format('User directory structure prepared for %s (no markers created)', username));
 
       // Create default subdirectories if enabled in config
       if (config.sftp.createDefaultSubdirs) {
@@ -934,7 +1069,7 @@ class SFTPS3Server extends EventEmitter {
       }
       
     } catch (err) {
-      this._log(util.format('Error creating user directory for %s: %s', username, err));
+      this._log(util.format('Error preparing user directory for %s: %s', username, err));
     }
   }
 
@@ -1077,12 +1212,14 @@ class SFTPS3Server extends EventEmitter {
       return true;
     });
 
-    // If this is the root directory, show the user's own directory
+    // If this is the root directory, show the user's own directory and available subdirectories
     if (state.fullname === '') {
       // Clear existing entries and show the user's own directory
       entries = [];
       
       const username = state.user ? state.user.username : 'user';
+      
+      // Add the user's main directory
       entries.push({
         filename: username,
         longname: `drwxr-xr-x    1 user user    0 Jan  1 00:00 ${username}`,
@@ -1096,7 +1233,34 @@ class SFTPS3Server extends EventEmitter {
         }
       });
       
-      this._log(util.format('Root directory listing: showing user %s directory', username));
+      // Add direct access to ledgers and invoices folders
+      entries.push({
+        filename: 'ledgers',
+        longname: `drwxr-xr-x    1 user user    0 Jan  1 00:00 ledgers`,
+        attrs: {
+          mode: 0o755,
+          uid: 0,
+          gid: 0,
+          size: 0,
+          atime: new Date(),
+          mtime: new Date()
+        }
+      });
+      
+      entries.push({
+        filename: 'invoices',
+        longname: `drwxr-xr-x    1 user user    0 Jan  1 00:00 invoices`,
+        attrs: {
+          mode: 0o755,
+          uid: 0,
+          gid: 0,
+          size: 0,
+          atime: new Date(),
+          mtime: new Date()
+        }
+      });
+      
+      this._log(util.format('Root directory listing: showing user %s directory and direct access to ledgers/invoices', username));
     }
 
     // User will see their own files in their user-specific directory

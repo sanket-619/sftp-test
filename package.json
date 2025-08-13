@@ -9,7 +9,13 @@
     "test": "node tests/test-server.js",
     "generate-keys": "./scripts/generate-keys.sh"
   },
-  "keywords": ["sftp", "s3", "aws", "file-transfer", "server"],
+  "keywords": [
+    "sftp",
+    "s3",
+    "aws",
+    "file-transfer",
+    "server"
+  ],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
@@ -19,5 +25,10 @@
   },
   "engines": {
     "node": ">=14.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.2.1",
+    "@types/ssh2": "^1.15.5",
+    "typescript": "^5.9.2"
   }
 }

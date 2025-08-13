@@ -34,6 +34,26 @@ sftpServer.on('file-uploaded', (data) => {
   console.log(`File uploaded: ${data.path} by ${data.username}`);
 });
 
+sftpServer.on('upload-error', (data) => {
+  console.error(`Upload error: ${data.path} by ${data.username} - ${data.error.message}`);
+});
+
+sftpServer.on('protected-directory-deletion-blocked', (data) => {
+  console.warn(`Protected directory deletion blocked: ${data.path} by ${data.username}`);
+});
+
+sftpServer.on('protected-directory-rename-blocked', (data) => {
+  console.warn(`Protected directory rename blocked: ${data.oldPath} -> ${data.newPath} by ${data.username}`);
+});
+
+sftpServer.on('directory-creation-blocked', (data) => {
+  console.warn(`Directory creation blocked: ${data.path} by ${data.username}`);
+});
+
+sftpServer.on('directory-deletion-blocked', (data) => {
+  console.warn(`Directory deletion blocked: ${data.path} by ${data.username}`);
+});
+
 sftpServer.on('directory-changed', (data) => {
   console.log(`Directory changed: ${data.path} - ${data.action} ${data.filename} by ${data.username}`);
 });
