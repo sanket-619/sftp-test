@@ -1,5 +1,5 @@
 "use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
+
 const config = {
     // Server configuration
     server: {
@@ -46,5 +46,5 @@ const config = {
         maxDirectoryDepth: parseInt(process.env.MAX_DIRECTORY_DEPTH || '10')
     }
 };
-exports.default = config;
-//# sourceMappingURL=config.js.map
+
+module.exports = config;
