@@ -1,9 +1,7 @@
 "use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-const config_1 = __importDefault(require("./config"));
+
+const config = require("./config");
+
 const accessControl = {
     // Define allowed paths for each user
     allowedPaths: {
@@ -60,7 +58,7 @@ const accessControl = {
             }
         }
         // Special case: allow users to access their own user folder
-        const userBasePath = config_1.default.sftp.userBasePath;
+        const userBasePath = config.sftp.userBasePath;
         if (normalizedPath === `/${username}` || normalizedPath.startsWith(`/${username}/`)) {
             console.log(`[DEBUG] Path is user's own directory: ${username}`);
             return true;
@@ -92,5 +90,5 @@ const accessControl = {
         return [...basePaths, `/${username}`];
     }
 };
-exports.default = accessControl;
-//# sourceMappingURL=access-control.js.map
+
+module.exports = accessControl;
